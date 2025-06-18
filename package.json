@@ -7,6 +7,10 @@
     "test": "jest --coverage",
     "test:ci": "jest --ci --coverage --reporters=default --reporters=jest-junit"
   },
+  "jest-junit": {
+    "outputDirectory": "test-results",
+    "outputName": "junit.xml"
+  },
   "author": "Your Name",
   "license": "MIT",
   "devDependencies": {

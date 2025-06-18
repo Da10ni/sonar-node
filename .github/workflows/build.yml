@@ -2,13 +2,11 @@ name: Quality Data Consolidation
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
   schedule:
-    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+    - cron: '0 2 * * *'
   workflow_dispatch:
 
 env:
@@ -44,7 +42,7 @@ jobs:
         run: |
           echo "📊 Running tests and collecting coverage..."
           mkdir -p test-results
-          npm test -- --coverage --coverageReporters=lcov --reporters=default --reporters=jest-junit
+          npm run test:ci
           
           echo "=== Test Report Check ==="
           if [ -f "test-results/junit.xml" ]; then
@@ -68,8 +66,8 @@ jobs:
           echo "🗂️ Organizing quality data..."
           mkdir -p target/quality-reports
 
-          TEST_FILES=$(find tests -name "*.js" 2>/dev/null | wc -l || echo "0")
-          TEST_METHODS=$(grep -r "test(" tests --include="*.js" 2>/dev/null | wc -l || echo "0")
+          TEST_FILES=$(find test -name "*.js" 2>/dev/null | wc -l || echo "0")
+          TEST_METHODS=$(grep -r "test(" test --include="*.js" 2>/dev/null | wc -l || echo "0")
           SOURCE_FILES=$(find src -name "*.js" 2>/dev/null | wc -l || echo "0")
           SOURCE_LINES=$(find src -name "*.js" -exec wc -l {} + | awk '{s+=$1} END {print s}' || echo "0")
 
@@ -95,36 +93,39 @@ jobs:
         run: |
           echo "🔍 Running SonarQube analysis for Node.js..."
           npm install -g sonar-scanner
-          sonar-scanner \
-            -Dsonar.projectKey=sonarqube-testing \
-            -Dsonar.projectName="sonarqube-testing" \
+
+          # Only add test report path if file exists
+          SCAN_ARGS="-Dsonar.projectKey=sonarqube-testing \
+            -Dsonar.projectName='sonarqube-testing' \
             -Dsonar.sources=src \
-            -Dsonar.tests=tests \
+            -Dsonar.tests=test \
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
-            -Dsonar.testExecutionReportPaths=test-results/junit.xml \
             -Dsonar.host.url=$SONAR_HOST_URL \
             -Dsonar.login=$SONAR_TOKEN \
             -Dsonar.qualitygate.wait=true \
             -Dsonar.qualitygate.timeout=300 \
             -Dsonar.analysis.buildNumber=${BUILD_NUMBER} \
             -Dsonar.analysis.repository=${GITHUB_REPOSITORY} \
-            -Dsonar.analysis.sha1=${GITHUB_SHA}
+            -Dsonar.analysis.sha1=${GITHUB_SHA}"
 
-      # Remaining Phases 4 and 5 + reporting logic unchanged
-      # These work with all languages as long as SonarQube data is provided
+          if [ -f "test-results/junit.xml" ]; then
+            SCAN_ARGS="$SCAN_ARGS -Dsonar.testExecutionReportPaths=test-results/junit.xml"
+            echo "✅ Including test report in scan"
+          else
+            echo "⚠️ Test report missing – skipping testExecutionReportPaths"
+          fi
 
-      # 🔄 PHASE 4
+          sonar-scanner $SCAN_ARGS
+
       - name: Phase 4 - Collect and organize quality data
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         run: |
-          PROJECT_KEY="sonarqube-nodejs"
+          PROJECT_KEY="sonarqube-testing"
           TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
-
           mkdir -p quality-data/master-reports quality-data/raw-data
 
-          echo "🔍 Checking SonarQube API..."
           if curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/measures/component?component=$PROJECT_KEY&metricKeys=ncloc,coverage,bugs" > "quality-data/raw-data/metrics_${TIMESTAMP}.json"; then
             echo "✅ API working"
             echo "Date,Project,Build,Status" > quality-data/master-reports/master-quality-report.csv
@@ -135,16 +136,14 @@ jobs:
             echo "$(date -u),$PROJECT_KEY,${{ github.run_number }},API_Failed" >> quality-data/master-reports/master-quality-report.csv
           fi
 
-      # 🔄 PHASE 5
       - name: Phase 5 - Generate Internal Quality Report
         if: always()
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         run: |
-          # Same logic as in your original workflow, using PROJECT_KEY=sonarqube-nodejs
-          # Safe handling for jq, CSV, markdown, and HTML reports remain unchanged
           echo "📋 Phase 5 report logic preserved..."
+          # Optional: include your secure phase 5 bash script here
 
       - name: Upload complete quality artifacts
         uses: actions/upload-artifact@v4
