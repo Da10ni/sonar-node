@@ -99,7 +99,7 @@ jobs:
             -Dsonar.projectKey=sonarqube-testing \
             -Dsonar.projectName="sonarqube-testing" \
             -Dsonar.sources=src \
-            -Dsonar.tests=tests \
+            -Dsonar.tests=test \
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
             -Dsonar.testExecutionReportPaths=test-results/junit.xml \
             -Dsonar.host.url=$SONAR_HOST_URL \
