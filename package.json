@@ -1,0 +1,15 @@
+{
+  "name": "sonarqube-node-project",
+  "version": "1.0.0",
+  "description": "Node.js project with SonarQube integration",
+  "main": "src/calculator.js",
+  "scripts": {
+    "test": "jest --coverage",
+    "test:ci": "jest --ci --coverage"
+  },
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "jest": "^29.6.1"
+  }
+}
