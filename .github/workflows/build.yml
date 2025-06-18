@@ -87,34 +87,25 @@ jobs:
           cat target/quality-reports/metrics.txt
 
       - name: SonarQube Analysis
-  env:
-    SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-    SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-  run: |
-    echo "🔍 Running SonarQube analysis for Node.js..."
-    npm install -g sonar-scanner
-    sonar-scanner \
-      -Dsonar.projectKey=sonarqube-testing \
-      -Dsonar.projectName='sonarqube-testing' \
-      -Dsonar.sources=src \
-      -Dsonar.tests=test \
-      -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
-      -Dsonar.host.url=$SONAR_HOST_URL \
-      -Dsonar.login=$SONAR_TOKEN \
-      -Dsonar.qualitygate.wait=true \
-      -Dsonar.qualitygate.timeout=300 \
-      -Dsonar.analysis.buildNumber=${BUILD_NUMBER} \
-      -Dsonar.analysis.repository=${GITHUB_REPOSITORY} \
-      -Dsonar.analysis.sha1=${GITHUB_SHA}"
-
-          if [ -f "test-results/junit.xml" ]; then
-            SCAN_ARGS="$SCAN_ARGS -Dsonar.testExecutionReportPaths=test-results/junit.xml"
-            echo "✅ Including test report in scan"
-          else
-            echo "⚠️ Test report missing – skipping testExecutionReportPaths"
-          fi
-
-          sonar-scanner $SCAN_ARGS
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: |
+          echo "🔍 Running SonarQube analysis for Node.js..."
+          npm install -g sonar-scanner
+          sonar-scanner \
+            -Dsonar.projectKey=sonarqube-testing \
+            -Dsonar.projectName='sonarqube-testing' \
+            -Dsonar.sources=src \
+            -Dsonar.tests=test \
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
+            -Dsonar.host.url=$SONAR_HOST_URL \
+            -Dsonar.login=$SONAR_TOKEN \
+            -Dsonar.qualitygate.wait=true \
+            -Dsonar.qualitygate.timeout=300 \
+            -Dsonar.analysis.buildNumber=${BUILD_NUMBER} \
+            -Dsonar.analysis.repository=${GITHUB_REPOSITORY} \
+            -Dsonar.analysis.sha1=${GITHUB_SHA}
 
       - name: Phase 4 - Collect and organize quality data
         env:
