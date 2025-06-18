@@ -1,3 +1,175 @@
+# name: Quality Data Consolidation
+
+# on:
+#   push:
+#     branches:
+#       - main
+#   pull_request:
+#     branches:
+#       - main
+#   schedule:
+#     - cron: '0 2 * * *'  # Daily at 2 AM UTC
+#   workflow_dispatch:
+
+# env:
+#   BUILD_NUMBER: ${{ github.run_number }}
+#   GITHUB_REPOSITORY: ${{ github.repository }}
+#   GITHUB_SHA: ${{ github.sha }}
+
+# jobs:
+#   quality-analysis:
+#     name: Complete Quality Pipeline - Node.js (All 5 Phases)
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Setup Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: '20'
+
+#       - name: Cache Node Modules
+#         uses: actions/cache@v4
+#         with:
+#           path: ~/.npm
+#           key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+#           restore-keys: ${{ runner.os }}-node
+
+#       - name: Install Dependencies
+#         run: npm ci
+
+#       - name: Collect Test Data and Coverage
+#         run: |
+#           echo "📊 Running tests and collecting coverage..."
+#           mkdir -p test-results
+#           npm test -- --coverage --coverageReporters=lcov --reporters=default --reporters=jest-junit
+          
+#           echo "=== Test Report Check ==="
+#           if [ -f "test-results/junit.xml" ]; then
+#             echo "✅ Test results generated"
+#           else
+#             echo "❌ Test results missing"
+#           fi
+          
+#           echo "=== Coverage Report Check ==="
+#           if [ -f "coverage/lcov.info" ]; then
+#             echo "✅ Coverage report available"
+#             COVERAGE=$(grep -m1 -o 'lines\.*[0-9]*%' coverage/lcov-report/index.html | grep -o '[0-9]*' || echo "0")
+#             echo "COVERAGE_LINES=${COVERAGE}" >> $GITHUB_ENV
+#           else
+#             echo "⚠️ No coverage data found"
+#             echo "COVERAGE_LINES=0" >> $GITHUB_ENV
+#           fi
+
+#       - name: Organize Quality Metrics
+#         run: |
+#           echo "🗂️ Organizing quality data..."
+#           mkdir -p target/quality-reports
+
+#           TEST_FILES=$(find tests -name "*.js" 2>/dev/null | wc -l || echo "0")
+#           TEST_METHODS=$(grep -r "test(" tests --include="*.js" 2>/dev/null | wc -l || echo "0")
+#           SOURCE_FILES=$(find src -name "*.js" 2>/dev/null | wc -l || echo "0")
+#           SOURCE_LINES=$(find src -name "*.js" -exec wc -l {} + | awk '{s+=$1} END {print s}' || echo "0")
+
+#           cat > target/quality-reports/metrics.txt << EOF
+#           Build Number: ${BUILD_NUMBER}
+#           Commit SHA: ${GITHUB_SHA}
+#           Repository: ${GITHUB_REPOSITORY}
+#           Date: $(date -u)
+#           Source Files: ${SOURCE_FILES}
+#           Source Lines: ${SOURCE_LINES}
+#           Test Files: ${TEST_FILES}
+#           Test Methods: ${TEST_METHODS}
+#           Coverage Lines: ${COVERAGE_LINES}
+#           EOF
+
+#           echo "=== Quality Metrics Summary ==="
+#           cat target/quality-reports/metrics.txt
+
+#       - name: SonarQube Analysis
+#         env:
+#           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+#           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+#         run: |
+#           echo "🔍 Running SonarQube analysis for Node.js..."
+#           npm install -g sonar-scanner
+#           sonar-scanner \
+#             -Dsonar.projectKey=sonarqube-testing \
+#             -Dsonar.projectName="sonarqube-testing" \
+#             -Dsonar.sources=src \
+#             -Dsonar.tests=tests \
+#             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
+#             -Dsonar.testExecutionReportPaths=test-results/junit.xml \
+#             -Dsonar.host.url=$SONAR_HOST_URL \
+#             -Dsonar.login=$SONAR_TOKEN \
+#             -Dsonar.qualitygate.wait=true \
+#             -Dsonar.qualitygate.timeout=300 \
+#             -Dsonar.analysis.buildNumber=${BUILD_NUMBER} \
+#             -Dsonar.analysis.repository=${GITHUB_REPOSITORY} \
+#             -Dsonar.analysis.sha1=${GITHUB_SHA}
+
+#       # Remaining Phases 4 and 5 + reporting logic unchanged
+#       # These work with all languages as long as SonarQube data is provided
+
+#       # 🔄 PHASE 4
+#       - name: Phase 4 - Collect and organize quality data
+#         env:
+#           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+#           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+#         run: |
+#           PROJECT_KEY="sonarqube-nodejs"
+#           TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
+
+#           mkdir -p quality-data/master-reports quality-data/raw-data
+
+#           echo "🔍 Checking SonarQube API..."
+#           if curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/measures/component?component=$PROJECT_KEY&metricKeys=ncloc,coverage,bugs" > "quality-data/raw-data/metrics_${TIMESTAMP}.json"; then
+#             echo "✅ API working"
+#             echo "Date,Project,Build,Status" > quality-data/master-reports/master-quality-report.csv
+#             echo "$(date -u),$PROJECT_KEY,${{ github.run_number }},Success" >> quality-data/master-reports/master-quality-report.csv
+#           else
+#             echo "⚠️ API failed"
+#             echo "Date,Project,Build,Status" > quality-data/master-reports/master-quality-report.csv
+#             echo "$(date -u),$PROJECT_KEY,${{ github.run_number }},API_Failed" >> quality-data/master-reports/master-quality-report.csv
+#           fi
+
+#       # 🔄 PHASE 5
+#       - name: Phase 5 - Generate Internal Quality Report
+#         if: always()
+#         env:
+#           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+#           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+#         run: |
+#           # Same logic as in your original workflow, using PROJECT_KEY=sonarqube-nodejs
+#           # Safe handling for jq, CSV, markdown, and HTML reports remain unchanged
+#           echo "📋 Phase 5 report logic preserved..."
+
+#       - name: Upload complete quality artifacts
+#         uses: actions/upload-artifact@v4
+#         if: always()
+#         with:
+#           name: quality-reports-nodejs-${{ github.run_number }}
+#           path: |
+#             target/quality-reports/
+#             coverage/
+#             test-results/
+#             quality-data/
+#             reports/
+#           retention-days: 30
+
+#       - name: Final Summary
+#         if: always()
+#         run: |
+#           echo "### ✅ Node.js Quality Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+#           echo "| Phase | Status |" >> $GITHUB_STEP_SUMMARY
+#           echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+#           echo "| Setup | ✅ Node & Sonar configured |" >> $GITHUB_STEP_SUMMARY
+#           echo "| Test  | ✅ Test & coverage collected |" >> $GITHUB_STEP_SUMMARY
+#           echo "| Scan  | ✅ Sonar analysis complete |" >> $GITHUB_STEP_SUMMARY
+#           echo "| Report | ✅ Reports uploaded |" >> $GITHUB_STEP_SUMMARY
+
 name: Quality Data Consolidation
 
 on:
@@ -45,14 +217,14 @@ jobs:
           echo "📊 Running tests and collecting coverage..."
           mkdir -p test-results
           npm test -- --coverage --coverageReporters=lcov --reporters=default --reporters=jest-junit
-          
+
           echo "=== Test Report Check ==="
           if [ -f "test-results/junit.xml" ]; then
             echo "✅ Test results generated"
           else
             echo "❌ Test results missing"
           fi
-          
+
           echo "=== Coverage Report Check ==="
           if [ -f "coverage/lcov.info" ]; then
             echo "✅ Coverage report available"
@@ -68,22 +240,22 @@ jobs:
           echo "🗂️ Organizing quality data..."
           mkdir -p target/quality-reports
 
-          TEST_FILES=$(find tests -name "*.js" 2>/dev/null | wc -l || echo "0")
-          TEST_METHODS=$(grep -r "test(" tests --include="*.js" 2>/dev/null | wc -l || echo "0")
+          TEST_FILES=$(find test -name "*.js" 2>/dev/null | wc -l || echo "0")
+          TEST_METHODS=$(grep -r "test(" test --include="*.js" 2>/dev/null | wc -l || echo "0")
           SOURCE_FILES=$(find src -name "*.js" 2>/dev/null | wc -l || echo "0")
           SOURCE_LINES=$(find src -name "*.js" -exec wc -l {} + | awk '{s+=$1} END {print s}' || echo "0")
 
           cat > target/quality-reports/metrics.txt << EOF
-          Build Number: ${BUILD_NUMBER}
-          Commit SHA: ${GITHUB_SHA}
-          Repository: ${GITHUB_REPOSITORY}
-          Date: $(date -u)
-          Source Files: ${SOURCE_FILES}
-          Source Lines: ${SOURCE_LINES}
-          Test Files: ${TEST_FILES}
-          Test Methods: ${TEST_METHODS}
-          Coverage Lines: ${COVERAGE_LINES}
-          EOF
+Build Number: ${BUILD_NUMBER}
+Commit SHA: ${GITHUB_SHA}
+Repository: ${GITHUB_REPOSITORY}
+Date: $(date -u)
+Source Files: ${SOURCE_FILES}
+Source Lines: ${SOURCE_LINES}
+Test Files: ${TEST_FILES}
+Test Methods: ${TEST_METHODS}
+Coverage Lines: ${COVERAGE_LINES}
+EOF
 
           echo "=== Quality Metrics Summary ==="
           cat target/quality-reports/metrics.txt
@@ -99,7 +271,7 @@ jobs:
             -Dsonar.projectKey=sonarqube-testing \
             -Dsonar.projectName="sonarqube-testing" \
             -Dsonar.sources=src \
-            -Dsonar.tests=tests \
+            -Dsonar.tests=test \
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
             -Dsonar.testExecutionReportPaths=test-results/junit.xml \
             -Dsonar.host.url=$SONAR_HOST_URL \
@@ -110,10 +282,6 @@ jobs:
             -Dsonar.analysis.repository=${GITHUB_REPOSITORY} \
             -Dsonar.analysis.sha1=${GITHUB_SHA}
 
-      # Remaining Phases 4 and 5 + reporting logic unchanged
-      # These work with all languages as long as SonarQube data is provided
-
-      # 🔄 PHASE 4
       - name: Phase 4 - Collect and organize quality data
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -135,15 +303,12 @@ jobs:
             echo "$(date -u),$PROJECT_KEY,${{ github.run_number }},API_Failed" >> quality-data/master-reports/master-quality-report.csv
           fi
 
-      # 🔄 PHASE 5
       - name: Phase 5 - Generate Internal Quality Report
         if: always()
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         run: |
-          # Same logic as in your original workflow, using PROJECT_KEY=sonarqube-nodejs
-          # Safe handling for jq, CSV, markdown, and HTML reports remain unchanged
           echo "📋 Phase 5 report logic preserved..."
 
       - name: Upload complete quality artifacts
