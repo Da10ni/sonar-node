@@ -96,8 +96,8 @@ jobs:
           echo "🔍 Running SonarQube analysis for Node.js..."
           npm install -g sonar-scanner
           sonar-scanner \
-            -Dsonar.projectKey=sonarqube-nodejs \
-            -Dsonar.projectName="NodeJS Quality" \
+            -Dsonar.projectKey=sonarqube-testing \
+            -Dsonar.projectName="sonarqube-testing" \
             -Dsonar.sources=src \
             -Dsonar.tests=tests \
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
