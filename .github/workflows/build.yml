@@ -106,22 +106,37 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        run: bash scripts/collect-sonar-data.sh
+        run: |
+          PROJECT_KEY="sonarqube-testing"
+          TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
+          mkdir -p quality-data/master-reports quality-data/raw-data
+          if curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/measures/component?component=$PROJECT_KEY&metricKeys=ncloc,coverage,bugs" > "quality-data/raw-data/metrics_${TIMESTAMP}.json"; then
+            echo "✅ API working"
+            echo "Date,Project,Build,Status" > quality-data/master-reports/master-quality-report.csv
+            echo "$(date -u),$PROJECT_KEY,${{ github.run_number }},Success" >> quality-data/master-reports/master-quality-report.csv
+          else
+            echo "⚠️ API failed"
+            echo "Date,Project,Build,Status" > quality-data/master-reports/master-quality-report.csv
+            echo "$(date -u),$PROJECT_KEY,${{ github.run_number }},API_Failed" >> quality-data/master-reports/master-quality-report.csv
+          fi
 
       - name: Phase 5 - Generate Internal Quality Report
         if: always()
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        run: |
-          echo "📋 Phase 5 report logic preserved..."
-          # Optional: include your secure phase 5 bash script here
+        run: echo "📋 Phase 5 report logic preserved..."
 
       - name: 🔥 Push Metrics to Google Sheets
         if: always()
         run: |
-          npm install googleapis glob
-          node scripts/push-to-sheets.mjs
+          npm install googleapis
+          if [ -f target/quality-reports/metrics.txt ]; then
+            echo "✅ Found metrics.txt. Syncing to Google Sheets..."
+            node scripts/push-to-sheets.mjs
+          else
+            echo "⚠️ metrics.txt not found. Skipping sync."
+          fi
         env:
           GOOGLE_SHEETS_CREDENTIALS_BASE64: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS_BASE64 }}
           SHEET_ID: ${{ secrets.SHEET_ID }}

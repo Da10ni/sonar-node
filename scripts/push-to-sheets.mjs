@@ -3,13 +3,12 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { google } from "googleapis";
-import { glob } from "glob"; // ✅ glob v8+ async import
 
-// ✅ __dirname workaround for ES Modules
+// ✅ __dirname for ES Modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ✅ Load env vars from GitHub Actions or .env (for local testing)
+// ✅ Load env vars
 const sheetId = process.env.SHEET_ID;
 const credsBase64 = process.env.GOOGLE_SHEETS_CREDENTIALS_BASE64;
 
@@ -17,7 +16,7 @@ const credsBase64 = process.env.GOOGLE_SHEETS_CREDENTIALS_BASE64;
   try {
     if (!sheetId || !credsBase64) throw new Error("Missing env vars");
 
-    // ✅ Decode base64 service account credentials
+    // ✅ Decode credentials
     const credentials = JSON.parse(
       Buffer.from(credsBase64, "base64").toString("utf8")
     );
@@ -29,33 +28,28 @@ const credsBase64 = process.env.GOOGLE_SHEETS_CREDENTIALS_BASE64;
 
     const sheets = google.sheets({ version: "v4", auth });
 
-    // ✅ Find latest quality metrics file using async glob
-    const files = await glob(
-      path.resolve(
-        __dirname,
-        "../quality-data/processed-data/key_metrics_*.txt"
-      )
+    // ✅ Path to metrics.txt
+    const metricsPath = path.resolve(
+      __dirname,
+      "../target/quality-reports/metrics.txt"
     );
 
-    const latestFile = files.sort().reverse()[0];
-
-    if (!latestFile) {
-      console.log("❌ No key_metrics_*.txt file found.");
-      process.exit(1);
+    if (!fs.existsSync(metricsPath)) {
+      console.error("❌ metrics.txt not found.");
+      process.exit(0); // soft fail
     }
 
-    // ✅ Parse metrics into [[key, value], ...] rows
-    const lines = fs.readFileSync(latestFile, "utf8").trim().split("\n");
+    // ✅ Read and parse metrics.txt
+    const lines = fs.readFileSync(metricsPath, "utf8").trim().split("\n");
     const values = lines.map((line) => {
       const [k, v] = line.split(":").map((x) => x.trim());
       return [k, v];
     });
 
-    // ✅ Tab name: Run-YYYYMMDD_HHMM
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const tabName = `Run-${timestamp.slice(0, 16)}`;
 
-    // ✅ Create a new tab in the spreadsheet
+    // ✅ Create new sheet/tab
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId: sheetId,
       requestBody: {
@@ -71,7 +65,7 @@ const credsBase64 = process.env.GOOGLE_SHEETS_CREDENTIALS_BASE64;
       },
     });
 
-    // ✅ Push values to the new sheet tab
+    // ✅ Push rows to the sheet
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
       range: `${tabName}!A1:B${values.length}`,
@@ -79,7 +73,7 @@ const credsBase64 = process.env.GOOGLE_SHEETS_CREDENTIALS_BASE64;
       requestBody: { values },
     });
 
-    console.log(`✅ Metrics written to sheet tab: ${tabName}`);
+    console.log(`✅ Metrics pushed to Google Sheets tab: ${tabName}`);
   } catch (err) {
     console.error("❌ Error pushing to Google Sheets:", err.message);
     process.exit(1);
