@@ -43,14 +43,12 @@ jobs:
           echo "📊 Running tests and collecting coverage..."
           mkdir -p test-results
           npm run test:ci
-          
           echo "=== Test Report Check ==="
           if [ -f "test-results/junit.xml" ]; then
             echo "✅ Test results generated"
           else
             echo "❌ Test results missing"
           fi
-          
           echo "=== Coverage Report Check ==="
           if [ -f "coverage/lcov.info" ]; then
             echo "✅ Coverage report available"
@@ -65,12 +63,10 @@ jobs:
         run: |
           echo "🗂️ Organizing quality data..."
           mkdir -p target/quality-reports
-
           TEST_FILES=$(find test -name "*.js" 2>/dev/null | wc -l || echo "0")
           TEST_METHODS=$(grep -r "test(" test --include="*.js" 2>/dev/null | wc -l || echo "0")
           SOURCE_FILES=$(find src -name "*.js" 2>/dev/null | wc -l || echo "0")
           SOURCE_LINES=$(find src -name "*.js" -exec wc -l {} + | awk '{s+=$1} END {print s}' || echo "0")
-
           cat > target/quality-reports/metrics.txt << EOF
           Build Number: ${BUILD_NUMBER}
           Commit SHA: ${GITHUB_SHA}
@@ -82,7 +78,6 @@ jobs:
           Test Methods: ${TEST_METHODS}
           Coverage Lines: ${COVERAGE_LINES}
           EOF
-
           echo "=== Quality Metrics Summary ==="
           cat target/quality-reports/metrics.txt
 
@@ -111,20 +106,7 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        run: |
-          PROJECT_KEY="sonarqube-testing"
-          TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
-          mkdir -p quality-data/master-reports quality-data/raw-data
-
-          if curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/measures/component?component=$PROJECT_KEY&metricKeys=ncloc,coverage,bugs" > "quality-data/raw-data/metrics_${TIMESTAMP}.json"; then
-            echo "✅ API working"
-            echo "Date,Project,Build,Status" > quality-data/master-reports/master-quality-report.csv
-            echo "$(date -u),$PROJECT_KEY,${{ github.run_number }},Success" >> quality-data/master-reports/master-quality-report.csv
-          else
-            echo "⚠️ API failed"
-            echo "Date,Project,Build,Status" > quality-data/master-reports/master-quality-report.csv
-            echo "$(date -u),$PROJECT_KEY,${{ github.run_number }},API_Failed" >> quality-data/master-reports/master-quality-report.csv
-          fi
+        run: bash scripts/collect-sonar-data.sh
 
       - name: Phase 5 - Generate Internal Quality Report
         if: always()
@@ -134,6 +116,15 @@ jobs:
         run: |
           echo "📋 Phase 5 report logic preserved..."
           # Optional: include your secure phase 5 bash script here
+
+      - name: 🔥 Push Metrics to Google Sheets
+        if: always()
+        run: |
+          npm install googleapis glob
+          node scripts/push-to-sheets.mjs
+        env:
+          GOOGLE_SHEETS_CREDENTIALS_BASE64: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS_BASE64 }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
 
       - name: Upload complete quality artifacts
         uses: actions/upload-artifact@v4
@@ -158,3 +149,4 @@ jobs:
           echo "| Test  | ✅ Test & coverage collected |" >> $GITHUB_STEP_SUMMARY
           echo "| Scan  | ✅ Sonar analysis complete |" >> $GITHUB_STEP_SUMMARY
           echo "| Report | ✅ Reports uploaded |" >> $GITHUB_STEP_SUMMARY
+          echo "| Sheets | ✅ Synced to Google Sheets tab |" >> $GITHUB_STEP_SUMMARY
