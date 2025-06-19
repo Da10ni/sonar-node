@@ -59,26 +59,26 @@ jobs:
             echo "COVERAGE_LINES=0" >> $GITHUB_ENV
           fi
 
-      - name: Organize Quality Metrics
+      - name: Phase 4 - Collect SonarQube Quality Metrics (Key Metrics)
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         run: |
-          echo "🗂️ Organizing quality data..."
+          echo "📊 Fetching actual SonarQube metrics..."
+          TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
           mkdir -p target/quality-reports
-          TEST_FILES=$(find test -name "*.js" 2>/dev/null | wc -l || echo "0")
-          TEST_METHODS=$(grep -r "test(" test --include="*.js" 2>/dev/null | wc -l || echo "0")
-          SOURCE_FILES=$(find src -name "*.js" 2>/dev/null | wc -l || echo "0")
-          SOURCE_LINES=$(find src -name "*.js" -exec wc -l {} + | awk '{s+=$1} END {print s}' || echo "0")
-          cat > target/quality-reports/metrics.txt << EOF
-          Build Number: ${BUILD_NUMBER}
-          Commit SHA: ${GITHUB_SHA}
-          Repository: ${GITHUB_REPOSITORY}
-          Date: $(date -u)
-          Source Files: ${SOURCE_FILES}
-          Source Lines: ${SOURCE_LINES}
-          Test Files: ${TEST_FILES}
-          Test Methods: ${TEST_METHODS}
-          Coverage Lines: ${COVERAGE_LINES}
-          EOF
-          echo "=== Quality Metrics Summary ==="
+
+          curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/measures/component?component=sonarqube-testing&metricKeys=ncloc,coverage,bugs,vulnerabilities,code_smells,duplicated_lines_density,reliability_rating,security_rating,sqale_rating" \
+            -o target/quality-reports/metrics_raw.json
+
+          echo "✅ API call completed."
+
+          echo "📂 Parsing JSON into metrics.txt..."
+          jq -r '
+            .component.measures[] |
+            "\(.metric): \(.value // \"N/A\")"
+          ' target/quality-reports/metrics_raw.json > target/quality-reports/metrics.txt
+
           cat target/quality-reports/metrics.txt
 
       - name: SonarQube Analysis
@@ -101,24 +101,6 @@ jobs:
             -Dsonar.analysis.buildNumber=${BUILD_NUMBER} \
             -Dsonar.analysis.repository=${GITHUB_REPOSITORY} \
             -Dsonar.analysis.sha1=${GITHUB_SHA}
-
-      - name: Phase 4 - Collect and organize quality data
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        run: |
-          PROJECT_KEY="sonarqube-testing"
-          TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
-          mkdir -p quality-data/master-reports quality-data/raw-data
-          if curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/measures/component?component=$PROJECT_KEY&metricKeys=ncloc,coverage,bugs" > "quality-data/raw-data/metrics_${TIMESTAMP}.json"; then
-            echo "✅ API working"
-            echo "Date,Project,Build,Status" > quality-data/master-reports/master-quality-report.csv
-            echo "$(date -u),$PROJECT_KEY,${{ github.run_number }},Success" >> quality-data/master-reports/master-quality-report.csv
-          else
-            echo "⚠️ API failed"
-            echo "Date,Project,Build,Status" > quality-data/master-reports/master-quality-report.csv
-            echo "$(date -u),$PROJECT_KEY,${{ github.run_number }},API_Failed" >> quality-data/master-reports/master-quality-report.csv
-          fi
 
       - name: Phase 5 - Generate Internal Quality Report
         if: always()
