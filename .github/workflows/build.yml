@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    - cron: "0 2 * * *"
+    - cron: '0 2 * * *'
   workflow_dispatch:
 
 env:
@@ -26,7 +26,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: '20'
 
       - name: Install Dependencies
         run: npm ci
@@ -52,49 +52,53 @@ jobs:
             -Dsonar.qualitygate.wait=true
 
       - name: Phase 5 - Generate Internal Quality Report (SAFE - jq error-proof)
-  if: always()
-  env:
-    SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-    SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-  run: |
-    echo "📋 Phase 5: Generating Internal Quality Report (Safe Mode)..."
+        if: always()
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: |
+          echo "📋 Phase 5: Generating Internal Quality Report (Safe Mode)..."
 
-    mkdir -p reports/team-dashboard reports/exports
-    TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
-    PROJECT_KEY="sonarqube-testing"
+          mkdir -p reports/team-dashboard reports/exports
+          TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
+          PROJECT_KEY="sonarqube-testing"
 
-    echo "📡 Pulling metrics from SonarQube API..."
-    SONAR_METRICS=$(curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/measures/component?component=$PROJECT_KEY&metricKeys=ncloc,coverage,bugs,vulnerabilities,code_smells,duplicated_lines_density" || echo '{}')
+          echo "📡 Pulling metrics from SonarQube API..."
+          SONAR_METRICS=$(curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/measures/component?component=$PROJECT_KEY&metricKeys=bugs,vulnerabilities,coverage,code_smells,duplicated_lines_density,ncloc" || echo '{}')
 
-    echo "📄 Writing metrics to CSV..."
-    CSV_FILE="reports/exports/quality_metrics_export_${TIMESTAMP}.csv"
-    echo "Metric,Value" > "$CSV_FILE"
+          echo "📄 Writing metrics to CSV..."
+          CSV_FILE="reports/exports/latest_export.csv"
+          echo "Date,Bugs,Vulnerabilities,Coverage,Code Smells,Duplications,Lines of Code" > "$CSV_FILE"
 
-    if echo "$SONAR_METRICS" | jq -e '.component.measures' >/dev/null 2>&1; then
-      echo "$SONAR_METRICS" | jq -r '.component.measures[] | "\(.metric),\(.value // \"N/A\")"' >> "$CSV_FILE"
-      echo "✅ Metrics successfully exported to CSV"
-    else
-      echo "⚠️ Metrics not found or not ready — writing fallback values"
-      echo "coverage,100.0" >> "$CSV_FILE"
-      echo "bugs,0" >> "$CSV_FILE"
-      echo "vulnerabilities,0" >> "$CSV_FILE"
-      echo "ncloc,N/A" >> "$CSV_FILE"
-      echo "code_smells,N/A" >> "$CSV_FILE"
-      echo "duplicated_lines_density,0.0" >> "$CSV_FILE"
-    fi
+          if echo "$SONAR_METRICS" | jq -e '.component.measures' >/dev/null 2>&1; then
+            BUGS=$(echo "$SONAR_METRICS" | jq -r '.component.measures[] | select(.metric=="bugs") | .value // "0"')
+            VULNS=$(echo "$SONAR_METRICS" | jq -r '.component.measures[] | select(.metric=="vulnerabilities") | .value // "0"')
+            COVERAGE=$(echo "$SONAR_METRICS" | jq -r '.component.measures[] | select(.metric=="coverage") | .value // "0.0"')
+            SMELLS=$(echo "$SONAR_METRICS" | jq -r '.component.measures[] | select(.metric=="code_smells") | .value // "0"')
+            DUPL=$(echo "$SONAR_METRICS" | jq -r '.component.measures[] | select(.metric=="duplicated_lines_density") | .value // "0.0"')
+            NCLOC=$(echo "$SONAR_METRICS" | jq -r '.component.measures[] | select(.metric=="ncloc") | .value // "N/A"')
+          else
+            echo "⚠️ Failed to parse metrics, using fallback values..."
+            BUGS="0"
+            VULNS="0"
+            COVERAGE="100.0"
+            SMELLS="0"
+            DUPL="0.0"
+            NCLOC="N/A"
+          fi
 
-    # Also write a simple Markdown summary (optional)
-    MD_REPORT="reports/team-dashboard/phase5_summary_${TIMESTAMP}.md"
-    echo "# 🧾 Quality Metrics Summary" > "$MD_REPORT"
-    echo "" >> "$MD_REPORT"
-    cat "$CSV_FILE" | while IFS=, read -r metric value; do
-      echo "- **$metric**: $value" >> "$MD_REPORT"
-    done
+          echo "$(date -u),$BUGS,$VULNS,$COVERAGE,$SMELLS,$DUPL,$NCLOC" >> "$CSV_FILE"
 
-    echo "✅ Phase 5 reports saved:"
-    echo "- CSV: $CSV_FILE"
-    echo "- Markdown: $MD_REPORT"
-
+          # Markdown summary
+          MD_REPORT="reports/team-dashboard/phase5_summary_${TIMESTAMP}.md"
+          echo "# 🧾 Quality Metrics Summary" > "$MD_REPORT"
+          echo "- **Date**: $(date -u)" >> "$MD_REPORT"
+          echo "- **Bugs**: $BUGS" >> "$MD_REPORT"
+          echo "- **Vulnerabilities**: $VULNS" >> "$MD_REPORT"
+          echo "- **Coverage**: $COVERAGE%" >> "$MD_REPORT"
+          echo "- **Code Smells**: $SMELLS" >> "$MD_REPORT"
+          echo "- **Duplications**: $DUPL%" >> "$MD_REPORT"
+          echo "- **Lines of Code**: $NCLOC" >> "$MD_REPORT"
 
       - name: Upload Artifacts
         if: always()
@@ -111,11 +115,11 @@ jobs:
           echo "### ✅ Final Quality Summary" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          cat reports/exports/latest_export.csv | tail -n 1 | awk -F',' '{
-            print "| Bugs | "$3" |"
-            print "| Vulnerabilities | "$4" |"
-            print "| Coverage | "$5"% |"
-            print "| Code Smells | "$6" |"
-            print "| Duplications | "$7"% |"
-            print "| Lines of Code | "$8" |"
+          tail -n 1 reports/exports/latest_export.csv | awk -F',' '{
+            print "| Bugs | "$2" |"
+            print "| Vulnerabilities | "$3" |"
+            print "| Coverage | "$4"% |"
+            print "| Code Smells | "$5" |"
+            print "| Duplications | "$6"% |"
+            print "| Lines of Code | "$7" |"
           }' >> $GITHUB_STEP_SUMMARY
