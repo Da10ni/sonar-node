@@ -74,10 +74,7 @@ jobs:
           echo "✅ API call completed."
 
           echo "📂 Parsing JSON into metrics.txt..."
-          jq -r '
-            .component.measures[] |
-            "\(.metric): \(.value // \"N/A\")"
-          ' target/quality-reports/metrics_raw.json > target/quality-reports/metrics.txt
+          jq -r '.component.measures[] | "\(.metric): \(.value // "N/A")"' target/quality-reports/metrics_raw.json > target/quality-reports/metrics.txt
 
           cat target/quality-reports/metrics.txt
 
