@@ -60,23 +60,31 @@ jobs:
           fi
 
       - name: Phase 4 - Collect SonarQube Quality Metrics (Key Metrics)
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        run: |
-          echo "📊 Fetching actual SonarQube metrics..."
-          TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
-          mkdir -p target/quality-reports
+  env:
+    SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+  run: |
+    echo "📊 Fetching actual SonarQube metrics..."
+    TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
+    mkdir -p target/quality-reports
 
-          curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/measures/component?component=sonarqube-testing&metricKeys=ncloc,coverage,bugs,vulnerabilities,code_smells,duplicated_lines_density,reliability_rating,security_rating,sqale_rating" \
-            -o target/quality-reports/metrics_raw.json
+    curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/measures/component?component=sonarqube-testing&metricKeys=ncloc,coverage,bugs,vulnerabilities,code_smells,duplicated_lines_density,reliability_rating,security_rating,sqale_rating" \
+      -o target/quality-reports/metrics_raw.json
 
-          echo "✅ API call completed."
+    echo "✅ API call completed."
 
-          echo "📂 Parsing JSON into metrics.txt..."
-          jq -r '.component.measures[] | "\(.metric): \(.value // "N/A")"' target/quality-reports/metrics_raw.json > target/quality-reports/metrics.txt
+    # Safety check and parsing
+    if jq -e '.component.measures' target/quality-reports/metrics_raw.json >/dev/null; then
+      jq -r '.component.measures[] | "\(.metric): \(.value // \"N/A\")"' \
+        target/quality-reports/metrics_raw.json > target/quality-reports/metrics.txt
+      echo "📂 Parsed metrics.txt:"
+      cat target/quality-reports/metrics.txt
+    else
+      echo "❌ Failed to parse metrics — raw response:"
+      cat target/quality-reports/metrics_raw.json
+      exit 1
+    fi
 
-          cat target/quality-reports/metrics.txt
 
       - name: SonarQube Analysis
         env:
