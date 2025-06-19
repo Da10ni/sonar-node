@@ -28,28 +28,27 @@ const credsBase64 = process.env.GOOGLE_SHEETS_CREDENTIALS_BASE64;
 
     const sheets = google.sheets({ version: "v4", auth });
 
-    // ✅ Path to metrics.txt
-    const metricsPath = path.resolve(
+    // ✅ Path to latest_export.csv
+    const csvPath = path.resolve(
       __dirname,
-      "../target/quality-reports/metrics.txt"
+      "../reports/exports/latest_export.csv"
     );
 
-    if (!fs.existsSync(metricsPath)) {
-      console.error("❌ metrics.txt not found.");
+    if (!fs.existsSync(csvPath)) {
+      console.error("❌ latest_export.csv not found.");
       process.exit(0); // soft fail
     }
 
-    // ✅ Read and parse metrics.txt
-    const lines = fs.readFileSync(metricsPath, "utf8").trim().split("\n");
-    const values = lines.map((line) => {
-      const [k, v] = line.split(":").map((x) => x.trim());
-      return [k, v];
-    });
+    // ✅ Read CSV and parse
+    const csvContent = fs.readFileSync(csvPath, "utf8").trim().split("\n");
+    const rows = csvContent.map((line) =>
+      line.split(",").map((cell) => cell.trim())
+    );
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const tabName = `Run-${timestamp.slice(0, 16)}`;
 
-    // ✅ Create new sheet/tab
+    // ✅ Create new tab
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId: sheetId,
       requestBody: {
@@ -65,15 +64,17 @@ const credsBase64 = process.env.GOOGLE_SHEETS_CREDENTIALS_BASE64;
       },
     });
 
-    // ✅ Push rows to the sheet
+    // ✅ Push rows
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
-      range: `${tabName}!A1:B${values.length}`,
+      range: `${tabName}!A1`,
       valueInputOption: "RAW",
-      requestBody: { values },
+      requestBody: {
+        values: rows,
+      },
     });
 
-    console.log(`✅ Metrics pushed to Google Sheets tab: ${tabName}`);
+    console.log(`✅ CSV data pushed to Google Sheets tab: ${tabName}`);
   } catch (err) {
     console.error("❌ Error pushing to Google Sheets:", err.message);
     process.exit(1);
