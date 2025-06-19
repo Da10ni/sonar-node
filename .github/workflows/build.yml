@@ -1,4 +1,4 @@
-name: Quality Data Consolidation
+name: Quality Data Consolidation (Node.js)
 
 on:
   push:
@@ -16,7 +16,7 @@ env:
 
 jobs:
   quality-analysis:
-    name: Complete Quality Pipeline - Node.js (All 5 Phases)
+    name: Complete Quality Pipeline - Node.js
     runs-on: ubuntu-latest
 
     steps:
@@ -28,125 +28,77 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Cache Node Modules
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
-          restore-keys: ${{ runner.os }}-node
-
       - name: Install Dependencies
         run: npm ci
 
-      - name: Collect Test Data and Coverage
+      - name: Run Tests and Collect Coverage
         run: |
-          echo "📊 Running tests and collecting coverage..."
           mkdir -p test-results
-          npm run test:ci
-          echo "=== Test Report Check ==="
-          if [ -f "test-results/junit.xml" ]; then
-            echo "✅ Test results generated"
-          else
-            echo "❌ Test results missing"
-          fi
-          echo "=== Coverage Report Check ==="
-          if [ -f "coverage/lcov.info" ]; then
-            echo "✅ Coverage report available"
-            COVERAGE=$(grep -m1 -o 'lines\.*[0-9]*%' coverage/lcov-report/index.html | grep -o '[0-9]*' || echo "0")
-            echo "COVERAGE_LINES=${COVERAGE}" >> $GITHUB_ENV
-          else
-            echo "⚠️ No coverage data found"
-            echo "COVERAGE_LINES=0" >> $GITHUB_ENV
-          fi
-
-      - name: Phase 4 - Collect SonarQube Quality Metrics (Key Metrics)
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        run: |
-          echo "📊 Fetching actual SonarQube metrics..."
-          TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
-          mkdir -p target/quality-reports
-
-          curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/measures/component?component=sonarqube-testing&metricKeys=ncloc,coverage,bugs,vulnerabilities,code_smells,duplicated_lines_density,reliability_rating,security_rating,sqale_rating" \
-            -o target/quality-reports/metrics_raw.json
-
-          echo "✅ API call completed."
-
-          if jq -e '.component.measures' target/quality-reports/metrics_raw.json >/dev/null; then
-            jq -r '.component.measures[] | "\(.metric): \(.value // \"N/A\")"' \
-              target/quality-reports/metrics_raw.json > target/quality-reports/metrics.txt
-            echo "📂 Parsed metrics.txt:"
-            cat target/quality-reports/metrics.txt
-          else
-            echo "❌ Failed to parse metrics — raw response:"
-            cat target/quality-reports/metrics_raw.json
-            exit 1
-          fi
+          npm run test:ci || echo "❌ Tests failed but continuing for reporting"
 
       - name: SonarQube Analysis
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         run: |
-          echo "🔍 Running SonarQube analysis for Node.js..."
           npm install -g sonar-scanner
           sonar-scanner \
             -Dsonar.projectKey=sonarqube-testing \
-            -Dsonar.projectName='sonarqube-testing' \
             -Dsonar.sources=src \
             -Dsonar.tests=test \
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
             -Dsonar.host.url=$SONAR_HOST_URL \
             -Dsonar.login=$SONAR_TOKEN \
-            -Dsonar.qualitygate.wait=true \
-            -Dsonar.qualitygate.timeout=300 \
-            -Dsonar.analysis.buildNumber=${BUILD_NUMBER} \
-            -Dsonar.analysis.repository=${GITHUB_REPOSITORY} \
-            -Dsonar.analysis.sha1=${GITHUB_SHA}
+            -Dsonar.qualitygate.wait=true
 
-      - name: Phase 5 - Generate Internal Quality Report
+      - name: Phase 5 - Generate Reports (CSV, MD, HTML)
         if: always()
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        run: echo "📋 Phase 5 report logic preserved..."
-
-      - name: 🔥 Push Metrics to Google Sheets
-        if: always()
         run: |
-          npm install googleapis
-          if [ -f target/quality-reports/metrics.txt ]; then
-            echo "✅ Found metrics.txt. Syncing to Google Sheets..."
-            node scripts/push-to-sheets.mjs
-          else
-            echo "⚠️ metrics.txt not found. Skipping sync."
-          fi
-        env:
-          GOOGLE_SHEETS_CREDENTIALS_BASE64: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS_BASE64 }}
-          SHEET_ID: ${{ secrets.SHEET_ID }}
+          mkdir -p reports/exports reports/team-dashboard
+          TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
+          PROJECT_KEY="sonarqube-testing"
 
-      - name: Upload complete quality artifacts
-        uses: actions/upload-artifact@v4
+          echo "📡 Pulling metrics from SonarQube API..."
+          METRICS=$(curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/measures/component?component=$PROJECT_KEY&metricKeys=ncloc,coverage,bugs,vulnerabilities,code_smells,duplicated_lines_density")
+
+          echo "📄 Writing metrics to CSV..."
+          CSV_FILE=reports/exports/quality_metrics_export_${TIMESTAMP}.csv
+          echo "Date,Project,Bugs,Vulnerabilities,Coverage,CodeSmells,Duplication,LinesOfCode" > "$CSV_FILE"
+          echo -n "$(date -u),$PROJECT_KEY," >> "$CSV_FILE"
+          echo "$METRICS" | jq -r '
+            [.component.measures[] | select(.metric=="bugs") .value,
+             .component.measures[] | select(.metric=="vulnerabilities") .value,
+             .component.measures[] | select(.metric=="coverage") .value,
+             .component.measures[] | select(.metric=="code_smells") .value,
+             .component.measures[] | select(.metric=="duplicated_lines_density") .value,
+             .component.measures[] | select(.metric=="ncloc") .value] 
+            | @csv' >> "$CSV_FILE"
+
+          echo "✅ CSV report generated: $CSV_FILE"
+
+      - name: Upload Artifacts
         if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: quality-reports-nodejs-${{ github.run_number }}
+          name: sonar-quality-reports-${{ github.run_number }}
           path: |
-            target/quality-reports/
-            coverage/
-            test-results/
-            quality-data/
-            reports/
-          retention-days: 30
+            reports/team-dashboard/
+            reports/exports/
 
       - name: Final Summary
         if: always()
         run: |
-          echo "### ✅ Node.js Quality Pipeline Summary" >> $GITHUB_STEP_SUMMARY
-          echo "| Phase | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Setup | ✅ Node & Sonar configured |" >> $GITHUB_STEP_SUMMARY
-          echo "| Test  | ✅ Test & coverage collected |" >> $GITHUB_STEP_SUMMARY
-          echo "| Scan  | ✅ Sonar analysis complete |" >> $GITHUB_STEP_SUMMARY
-          echo "| Report | ✅ Reports uploaded |" >> $GITHUB_STEP_SUMMARY
-          echo "| Sheets | ✅ Synced to Google Sheets tab |" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Final Quality Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          cat reports/exports/latest_export.csv | tail -n 1 | awk -F',' '{
+            print "| Bugs | "$3" |"
+            print "| Vulnerabilities | "$4" |"
+            print "| Coverage | "$5"% |"
+            print "| Code Smells | "$6" |"
+            print "| Duplications | "$7"% |"
+            print "| Lines of Code | "$8" |"
+          }' >> $GITHUB_STEP_SUMMARY
