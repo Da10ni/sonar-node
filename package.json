@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Node.js project with SonarQube integration",
   "main": "src/calculator.js",
+  "type": "module",
   "scripts": {
     "test": "jest --coverage",
     "test:ci": "jest --ci --coverage --reporters=default --reporters=jest-junit"

@@ -4,3 +4,4 @@ module.exports = {
   coverageReporters: ["lcov", "text"],
   testEnvironment: "node",
 };
+
